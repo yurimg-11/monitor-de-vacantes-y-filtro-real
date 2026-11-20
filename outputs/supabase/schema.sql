@@ -31,8 +31,12 @@ create table if not exists public.profiles (
   user_id uuid primary key references auth.users(id) on delete cascade,
   display_name text not null default '',
   skills text[] not null default '{}',
+  resume_path text,
+  resume_name text,
   updated_at timestamptz not null default now()
 );
+alter table public.profiles add column if not exists resume_path text;
+alter table public.profiles add column if not exists resume_name text;
 alter table public.profiles enable row level security;
 drop policy if exists "Users can read their own profile" on public.profiles;
 create policy "Users can read their own profile" on public.profiles for select to authenticated using ((select auth.uid()) = user_id);
@@ -54,6 +58,19 @@ drop policy if exists "Users can save jobs for themselves" on public.saved_jobs;
 create policy "Users can save jobs for themselves" on public.saved_jobs for insert to authenticated with check ((select auth.uid()) = user_id);
 drop policy if exists "Users can remove their saved jobs" on public.saved_jobs;
 create policy "Users can remove their saved jobs" on public.saved_jobs for delete to authenticated using ((select auth.uid()) = user_id);
+
+-- CVs live in a private bucket. Each account can access only its own folder.
+insert into storage.buckets(id,name,public,file_size_limit,allowed_mime_types)
+values ('resumes','resumes',false,10485760,array['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
+on conflict (id) do update set public=false,file_size_limit=10485760,allowed_mime_types=excluded.allowed_mime_types;
+drop policy if exists "Users can read their own CV" on storage.objects;
+create policy "Users can read their own CV" on storage.objects for select to authenticated using (bucket_id='resumes' and (storage.foldername(name))[1]=(select auth.uid())::text);
+drop policy if exists "Users can upload their own CV" on storage.objects;
+create policy "Users can upload their own CV" on storage.objects for insert to authenticated with check (bucket_id='resumes' and (storage.foldername(name))[1]=(select auth.uid())::text);
+drop policy if exists "Users can update their own CV" on storage.objects;
+create policy "Users can update their own CV" on storage.objects for update to authenticated using (bucket_id='resumes' and (storage.foldername(name))[1]=(select auth.uid())::text) with check (bucket_id='resumes' and (storage.foldername(name))[1]=(select auth.uid())::text);
+drop policy if exists "Users can delete their own CV" on storage.objects;
+create policy "Users can delete their own CV" on storage.objects for delete to authenticated using (bucket_id='resumes' and (storage.foldername(name))[1]=(select auth.uid())::text);
 
 grant usage on schema public to anon, authenticated;
 grant select on public.jobs to anon, authenticated;
