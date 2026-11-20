@@ -44,3 +44,12 @@ El formulario `/admin` recibe una vacante o un arreglo JSON. Ejemplo:
 ```
 
 Dos ofertas con el mismo título, empresa y ubicación se actualizan en vez de duplicarse. Las marcas de verificación, fuente y detalles los proporciona quien importa la oferta; la app no valida por su cuenta que la empresa o vacante sean legítimas. La carga automática desde portales requiere integrar fuentes o feeds con permiso de uso.
+
+
+## Flujo de empleo y empresas
+
+- Candidatos: crear cuenta, cargar CV privado, agregar habilidades, guardar empleos y postularse desde la ficha. La empresa solo puede abrir el CV despues de recibir una postulacion.
+- Empresas: abre `/empresas`, inicia sesion, registra la empresa y, una vez verificada, envia vacantes para revision.
+- Moderacion: abre `/admin`, ingresa `ADMIN_KEY`, verifica empresas y aprueba o rechaza vacantes. Solo vacantes publicadas aparecen en Explorar empleos.
+- Ejecuta de nuevo el archivo completo `supabase/schema.sql` en SQL Editor para crear las tablas y politicas nuevas.
+- No hay feeds automaticos de OCC o LinkedIn conectados. Las vacantes de empresas se publican desde el portal despues de revision; otras fuentes requieren una integracion autorizada.
