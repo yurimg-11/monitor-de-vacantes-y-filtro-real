@@ -11,7 +11,8 @@ const db = SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY
 const norm = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const modeForUi = value => norm(value) === 'hibrido' ? 'Hibrido' : value;
 
-app.get('/api/config', (_req, res) => res.json({ url: SUPABASE_URL || '', anonKey: process.env.SUPABASE_ANON_KEY || '' }));
+const AUTH_REDIRECT_URL = process.env.AUTH_REDIRECT_URL || 'https://monitor-de-vacantes-y-filtro-real.onrender.com';
+app.get('/api/config', (_req, res) => res.json({ url: SUPABASE_URL || '', anonKey: process.env.SUPABASE_ANON_KEY || '', redirectUrl: AUTH_REDIRECT_URL }));
 app.get('/api/health', (_req, res) => res.json({ ok: Boolean(db) }));
 
 app.get('/api/jobs', async (req, res) => {
@@ -53,7 +54,10 @@ app.patch('/api/admin/companies/:id', async (req, res) => {
   if (!requireAdmin(req, res)) return;
   const status = ['verified', 'rejected'].includes(req.body.status) ? req.body.status : null;
   if (!status) return res.status(400).json({ error: 'Estado invalido.' });
-  const { data, error } = await db.from('companies').update({ status }).eq('id', req.params.id).select().maybeSingle();
+  const notes = String(req.body.notes || '').trim().slice(0, 2000);
+  if (status === 'verified' && notes.length < 10) return res.status(400).json({ error: 'Agrega una nota de revision (por ejemplo, coincidencia de razon social y FME en SIGER).' });
+  const update = { status, verification_notes: notes, verified_at: status === 'verified' ? new Date().toISOString() : null };
+  const { data, error } = await db.from('companies').update(update).eq('id', req.params.id).select().maybeSingle();
   if (error) return res.status(400).json({ error: error.message });
   if (!data) return res.status(404).json({ error: 'Empresa no encontrada.' });
   res.json({ company: data });

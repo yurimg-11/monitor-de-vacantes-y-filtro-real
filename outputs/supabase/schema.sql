@@ -24,20 +24,30 @@ create table if not exists public.companies (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid not null unique references auth.users(id) on delete cascade,
   name text not null,
+  legal_name text not null default '',
+  fme text not null default '',
   website text not null default '',
+  website_domain text not null default '',
   contact_email text not null default '',
+  verification_notes text not null default '',
+  verified_at timestamptz,
   status text not null default 'pending' check(status in ('pending','verified','rejected')),
   created_at timestamptz not null default now()
 );
+alter table public.companies add column if not exists legal_name text not null default '';
+alter table public.companies add column if not exists fme text not null default '';
+alter table public.companies add column if not exists website_domain text not null default '';
+alter table public.companies add column if not exists verification_notes text not null default '';
+alter table public.companies add column if not exists verified_at timestamptz;
 alter table public.companies enable row level security;
 drop policy if exists "Companies are visible to owner and public when verified" on public.companies;
 drop policy if exists "Company owners can read their company" on public.companies;
 create policy "Company owners can read their company" on public.companies for select to authenticated
 using (owner_id=(select auth.uid()));
 drop policy if exists "Users can register a company" on public.companies;
-create policy "Users can register a company" on public.companies for insert to authenticated with check(owner_id=(select auth.uid()) and status='pending');
+create policy "Users can register a company" on public.companies for insert to authenticated with check(owner_id=(select auth.uid()) and status='pending' and length(trim(legal_name))>2 and length(trim(fme))>=6 and lower(contact_email)=lower(auth.jwt()->>'email') and (lower(website_domain)=lower(split_part(auth.jwt()->>'email','@',2)) or lower(website_domain) like '%.'||lower(split_part(auth.jwt()->>'email','@',2))) and website_domain<>'');
 drop policy if exists "Owners can edit pending company details" on public.companies;
-create policy "Owners can edit pending company details" on public.companies for update to authenticated using(owner_id=(select auth.uid()) and status='pending') with check(owner_id=(select auth.uid()) and status='pending');
+create policy "Owners can edit pending company details" on public.companies for update to authenticated using(owner_id=(select auth.uid()) and status='pending') with check(owner_id=(select auth.uid()) and status='pending' and length(trim(legal_name))>2 and length(trim(fme))>=6 and lower(contact_email)=lower(auth.jwt()->>'email') and (lower(website_domain)=lower(split_part(auth.jwt()->>'email','@',2)) or lower(website_domain) like ('%.'||lower(split_part(auth.jwt()->>'email','@',2)))) and website_domain<>'');
 
 create table if not exists public.jobs (
   id uuid primary key default gen_random_uuid(),
@@ -54,6 +64,7 @@ create table if not exists public.jobs (
   posted text not null default 'hoy',
   recent integer not null default 0,
   salary_n integer not null default 0,
+  positions integer not null default 1 check(positions > 0),
   description text not null default '',
   url text not null default '',
   dedupe_key text not null unique,
@@ -65,6 +76,7 @@ create table if not exists public.jobs (
 alter table public.jobs add column if not exists owner_id uuid references auth.users(id) on delete set null;
 alter table public.jobs add column if not exists company_id uuid references public.companies(id) on delete cascade;
 alter table public.jobs add column if not exists status text not null default 'published';
+alter table public.jobs add column if not exists positions integer not null default 1;
 alter table public.jobs drop constraint if exists jobs_mode_check;
 alter table public.jobs add constraint jobs_mode_check check (mode in ('Remoto','Hibrido',U&'H\00edbrido','Presencial'));
 alter table public.jobs drop constraint if exists jobs_status_check;
@@ -83,7 +95,18 @@ create policy "Verified employers can submit jobs for review" on public.jobs for
   )
 );
 drop policy if exists "Employers can edit or close own jobs" on public.jobs;
-create policy "Employers can edit or close own jobs" on public.jobs for update to authenticated using(owner_id=(select auth.uid())) with check(owner_id=(select auth.uid()) and status in ('pending','closed') and exists(select 1 from public.companies c where c.id=company_id and c.owner_id=(select auth.uid()) and c.status='verified'));
+create policy "Employers can close published jobs" on public.jobs for update to authenticated
+using(owner_id=(select auth.uid()) and status='published')
+with check(owner_id=(select auth.uid()) and status='closed');
+drop policy if exists "Employers can reactivate own jobs for review" on public.jobs;
+create policy "Employers can reactivate own jobs for review" on public.jobs for update to authenticated
+using(owner_id=(select auth.uid()) and status='closed')
+with check(owner_id=(select auth.uid()) and status='pending' and exists(select 1 from public.companies c where c.id=company_id and c.owner_id=(select auth.uid()) and c.status='verified'));
+drop policy if exists "Employers can edit pending jobs" on public.jobs;
+create policy "Employers can edit pending jobs" on public.jobs for update to authenticated
+using(owner_id=(select auth.uid()) and status='pending')
+with check(owner_id=(select auth.uid()) and status='pending' and exists(select 1 from public.companies c where c.id=company_id and c.owner_id=(select auth.uid()) and c.status='verified'));
+
 
 create table if not exists public.saved_jobs (
   user_id uuid not null references auth.users(id) on delete cascade,
@@ -123,6 +146,72 @@ create policy "Hiring employers can update application status" on public.applica
   exists(select 1 from public.jobs j where j.id=job_id and j.owner_id=(select auth.uid()))
 ) with check (exists(select 1 from public.jobs j where j.id=job_id and j.owner_id=(select auth.uid())));
 
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  job_id uuid references public.jobs(id) on delete set null,
+  title text not null,
+  message text not null,
+  read_at timestamptz,
+  created_at timestamptz not null default now()
+);
+alter table public.notifications enable row level security;
+drop policy if exists "Users can read their own notifications" on public.notifications;
+create policy "Users can read their own notifications" on public.notifications for select to authenticated using(user_id=(select auth.uid()));
+drop policy if exists "Users can mark their own notifications read" on public.notifications;
+create policy "Users can mark their own notifications read" on public.notifications for update to authenticated using(user_id=(select auth.uid())) with check(user_id=(select auth.uid()));
+
+create or replace function public.notify_candidate_application_status()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare
+  v_title text;
+  v_message text;
+  v_positions integer;
+  v_hired integer;
+begin
+  if new.status is distinct from old.status then
+    select title into v_title from public.jobs where id=new.job_id;
+    v_message := case new.status
+      when 'reviewing' then 'La empresa esta revisando tu postulacion.'
+      when 'interview' then 'La empresa quiere avanzar contigo a una entrevista.'
+      when 'rejected' then 'La empresa actualizo el estado de tu postulacion.'
+      when 'hired' then 'La empresa te marco como seleccionado/a.'
+      else 'El estado de tu postulacion cambio.'
+    end;
+    insert into public.notifications(user_id,job_id,title,message)
+    values(new.candidate_id,new.job_id,'Actualizacion de postulacion: '||coalesce(v_title,'vacante'),v_message);
+    if new.status='hired' then
+      select positions into v_positions from public.jobs where id=new.job_id;
+      select count(*) into v_hired from public.applications where job_id=new.job_id and status='hired';
+      if v_hired >= coalesce(v_positions,1) then
+        update public.jobs set status='closed' where id=new.job_id and status='published';
+      end if;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists application_status_notification on public.applications;
+create trigger application_status_notification after update of status on public.applications
+for each row execute function public.notify_candidate_application_status();
+
+create or replace function public.notify_candidates_vacancy_closed()
+returns trigger language plpgsql security definer set search_path=public as $$
+declare v_title text;
+begin
+  if old.status='published' and new.status='closed' then
+    v_title := new.title;
+    insert into public.notifications(user_id,job_id,title,message)
+    select a.candidate_id,new.id,'Vacante cerrada: '||v_title,'La empresa cerro esta vacante. Si fuiste seleccionado/a, revisa la actualizacion de tu postulacion.'
+    from public.applications a where a.job_id=new.id and a.status<>'hired';
+  end if;
+  return new;
+end;
+$$;
+drop trigger if exists vacancy_closed_notification on public.jobs;
+create trigger vacancy_closed_notification after update of status on public.jobs
+for each row execute function public.notify_candidates_vacancy_closed();
+
 drop policy if exists "Users can read their own profile" on public.profiles;
 drop policy if exists "Users can read own or applicant profiles" on public.profiles;
 create policy "Users can read own or applicant profiles" on public.profiles for select to authenticated using (
@@ -158,6 +247,9 @@ grant select on public.jobs to anon, authenticated;
 grant insert,update on public.jobs to authenticated;
 grant select,insert,update on public.profiles to authenticated;
 grant select,insert,delete on public.saved_jobs to authenticated;
-grant select,insert,update on public.companies to authenticated;
+revoke update on public.companies from authenticated;
+grant select,insert on public.companies to authenticated;
+grant update(name,legal_name,fme,website,website_domain,contact_email) on public.companies to authenticated;
 grant select,insert on public.applications to authenticated;
 grant update(status) on public.applications to authenticated;
+grant select,update on public.notifications to authenticated;

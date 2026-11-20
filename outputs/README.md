@@ -6,7 +6,7 @@ App web con PostgreSQL de Supabase, inicio de sesión, perfiles privados de habi
 
 1. Crea un proyecto en [Supabase](https://supabase.com/dashboard).
 2. En **SQL Editor**, ejecuta el archivo `supabase/schema.sql` completo.
-3. En **Authentication → URL Configuration**, agrega la URL de tu app en **Site URL** y Redirect URLs.
+3. En **Authentication > URL Configuration**, cambia **Site URL** a `https://monitor-de-vacantes-y-filtro-real.onrender.com` y agrega esa misma URL a **Redirect URLs**. Asi la confirmacion abre Render aunque solicites el correo desde localhost.
 4. En **Project Settings → API**, copia Project URL, anon/publishable key y service_role/secret key.
 5. En Authentication, configura el proveedor Email y el correo de confirmación según cómo quieras permitir el registro.
 
@@ -31,8 +31,8 @@ Abre `http://localhost:3000`. Regístrate/inicia sesión en **Entrar** y añade 
 
 1. Sube el contenido de esta carpeta a un repositorio Git.
 2. En Render, crea un Blueprint desde el repositorio y confirma `render.yaml`.
-3. En las variables de entorno del servicio, configura `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` y un `ADMIN_KEY` secreto.
-4. En Supabase, añade la URL pública asignada por Render a **Site URL** y Redirect URLs.
+3. En las variables de entorno del servicio, configura `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, `AUTH_REDIRECT_URL=https://monitor-de-vacantes-y-filtro-real.onrender.com` y un `ADMIN_KEY` secreto.
+4. Confirma que **Site URL** y Redirect URLs en Supabase usan la URL publica de Render (no localhost).
 5. Abre el sitio y carga vacantes en `/admin`.
 
 ## Cargar vacantes
@@ -53,3 +53,9 @@ Dos ofertas con el mismo título, empresa y ubicación se actualizan en vez de d
 - Moderacion: abre `/admin`, ingresa `ADMIN_KEY`, verifica empresas y aprueba o rechaza vacantes. Solo vacantes publicadas aparecen en Explorar empleos.
 - Ejecuta de nuevo el archivo completo `supabase/schema.sql` en SQL Editor para crear las tablas y politicas nuevas.
 - No hay feeds automaticos de OCC o LinkedIn conectados. Las vacantes de empresas se publican desde el portal despues de revision; otras fuentes requieren una integracion autorizada.
+
+## Verificacion, contratacion y notificaciones
+
+La verificacion de empresas se hace manualmente en `/admin`: se consulta razon social y FME en el RPC/SIGER, y se guarda una nota de revision. El correo corporativo confirmado que coincide con el dominio del sitio es una comprobacion adicional. No se ejecutan consultas pagadas. Los candidatos reciben notificaciones dentro de Brujula cuando RR. HH. cambia el estado de su postulacion o cierra la vacante. Al marcar como contratadas tantas personas como plazas indicadas, la vacante se cierra y deja de aparecer en busquedas. RR. HH. puede solicitar reactivarla desde `/empresas`; vuelve a revision antes de publicarse. Las notificaciones son dentro de la app, no por correo.
+
+Para empresas en Mexico, `/empresas` pide razon social, FME, sitio y correo corporativo confirmado con el mismo dominio. `/admin` abre la consulta oficial del Registro Publico de Comercio (SIGER); el equipo consulta manualmente la razon social y el FME en el RPC/SIGER desde `/admin`, anota el resultado y aprueba. No se conecta ni se cobra ninguna API de verificacion. La existencia registral se valida manualmente; el correo corporativo confirmado es una comprobacion adicional.
