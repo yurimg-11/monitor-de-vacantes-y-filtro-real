@@ -6,9 +6,9 @@ App web con PostgreSQL de Supabase, inicio de sesión, perfiles privados de habi
 
 1. Crea un proyecto en [Supabase](https://supabase.com/dashboard).
 2. En **SQL Editor**, ejecuta el archivo `supabase/schema.sql` completo.
-3. En **Authentication > URL Configuration**, cambia **Site URL** a `https://monitor-de-vacantes-y-filtro-real.onrender.com` y agrega esa misma URL a **Redirect URLs**. Asi la confirmacion abre Render aunque solicites el correo desde localhost.
+3. En **Authentication > URL Configuration**, deja **Site URL** en `https://monitor-de-vacantes-y-filtro-real.onrender.com` y agrega esa URL a **Redirect URLs** para que los enlaces de autenticación regresen al sitio publicado, nunca a localhost.
 4. En **Project Settings → API**, copia Project URL, anon/publishable key y service_role/secret key.
-5. En Authentication, configura el proveedor Email y el correo de confirmación según cómo quieras permitir el registro.
+5. En **Authentication > Sign In / Providers > Email**, desactiva **Confirm email** para permitir el acceso inmediatamente después del registro. Esto también marca la dirección como verificada sin comprobar que la persona controla ese correo; es solo para pruebas.
 
 El esquema da lectura pública a las vacantes. Cada usuario solo puede leer o actualizar su propio perfil y vacantes guardadas (políticas RLS). La clave `service_role` solo se configura en el servidor; no la publiques ni la pegues en el navegador.
 
